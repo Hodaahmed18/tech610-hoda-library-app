@@ -82,23 +82,6 @@ Links:
 - [db_prov.sh](scripts/db_prov.sh)
 - [app_prov.sh](scripts/app_prov.sh)
 
-## Blockers and how they were resolved
-
-**1. Instances terminated by a classmate by accident mid-deployment.**
-Both EC2 instances were terminated while the deployment was in progress. Both were relaunched fresh from scratch using the AWS CLI, and the full setup was repeated.
-
-**2. Port 3306 not open in the security group.**
-The app VM could not connect to the database at all, connection attempts timed out. Adding an inbound rule for port 3306 to the shared security group resolved this immediately.
-
-**3. Environment variables not persisting through Maven.**
-Exporting `DB_HOST`, `DB_USER`, and `DB_PASS` in a script and then running `mvn spring-boot:run` manually afterward in a new shell meant the exports were gone. Fixed by passing the variables inline on the same command:
-```bash
-DB_HOST=jdbc:mysql://172.31.54.82:3306/library DB_USER=myuser DB_PASS=password mvn spring-boot:run
-```
-Or ensuring the script itself calls `mvn spring-boot:run` in the same shell session immediately after exporting.
-
-**4. Spring Boot failing with "Unable to determine Dialect".**
-This was caused by the env vars not being set correctly, Spring Boot could not determine the database type because it had no valid connection URL. Once env vars were correctly passed, this error disappeared.
 
 ## Part 3, user data deployment
 
@@ -149,9 +132,3 @@ curl http://<APP_PUBLIC_IP>:5000/authors
 ```
 Returned the full authors JSON with no manual SSH or configuration required on either instance.
 
-## Second deliverable
-
-Full documentation and scripts:
-```
-https://github.com/Hodaahmed18/tech610-hoda-library-app
-```
