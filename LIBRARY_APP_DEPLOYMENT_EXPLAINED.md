@@ -1,24 +1,22 @@
 # Library App, 2-tier deployment on AWS
 
-## Aim
+## What I was trying to do
 
-Deploy the Library Java Spring Boot application with a MySQL database on two separate EC2 instances on AWS, then automate the setup using bash scripts.
+Deploy a Java Spring Boot library application connected to a MySQL database, across two separate EC2 instances on AWS. The goal was to get it working manually first, then work up through bash scripts and user data to make the whole thing increasingly automated.
 
-## Architecture
+## What I set up
 
-- **DB VM**: Ubuntu 24.04, t3.micro, eu-west-1, default VPC, MySQL 8.0
-- **App VM**: Ubuntu 24.04, t3.micro, eu-west-1, default VPC, Java 17, Maven, Spring Boot on port 5000
-- Both instances use the same security group, with ports 22, 80, 3000, 3306, and 5000 open inbound
+Two Ubuntu 24.04 instances, both t3.micro in eu-west-1. One for the database, one for the app. Both sit in the same security group with the necessary ports open, 22 for SSH, 3306 for MySQL, and 5000 for the app itself.
 
-## Level of automation achieved
+---
 
-Manual deployment confirmed working, then bash scripts written to automate both the database and application provisioning. User data and AMI levels were not reached within the available time.
+## Stage 1, getting it working manually
 
-## Part 1, manual deployment
+### The database VM
 
-### DB VM setup
+First thing was getting MySQL installed and configured on the DB VM. After installing MySQL, I imported the library schema directly into it, then created a dedicated database user so the app could connect remotely rather than having to use root.
 
-SSH into the DB VM, then run the following in order:
+The key config change here was the bindIp setting. By default, MySQL only listens on localhost (127.0.0.1), which means nothing outside the same machine can reach it. I updated that to 0.0.0.0 so MySQL would accept connections from the app VM across the private network, then restarted MySQL to apply it.
 
 ```bash
 sudo apt update -y && sudo apt upgrade -y
@@ -33,24 +31,13 @@ sudo sed -i 's|127.0.0.1|0.0.0.0|' /etc/mysql/mysql.conf.d/mysqld.cnf
 sudo systemctl restart mysql
 ```
 
-**What each step does:**
-- Installs MySQL server
-- Clones the LibraryFiles repo which contains the library.sql schema file
-- Imports the library database schema into MySQL
-- Creates a dedicated user with access from any IP (`%`), rather than using the root user
-- Changes the bindIp from `127.0.0.1` (localhost only) to `0.0.0.0` (all interfaces), so the app VM can connect remotely
-- Restarts MySQL to apply the config change
+Confirmed it was working by checking MySQL was active and bindIp was set correctly.
 
-**Confirmed working:**
-```bash
-sudo systemctl status mysql | grep Active
-grep bind-address /etc/mysql/mysql.conf.d/mysqld.cnf
-```
-Output: `Active: active (running)` and `bind-address = 0.0.0.0`
+### The app VM
 
-### App VM setup
+On the app side, the app is a Spring Boot Java project so it needs Java 17 and Maven to build and run. After installing those, I cloned the app code, set the three environment variables the app reads at startup (the database URL, username, and password), and started it with Maven.
 
-SSH into the app VM, note the DB VM's private IP first.
+The app reads its database connection details from a config file that references environment variables directly, so getting those set correctly in the same shell session that runs Maven was important.
 
 ```bash
 sudo apt update -y && sudo apt upgrade -y
@@ -64,30 +51,34 @@ cd LibraryFiles/library-java17-mysql-app/LibraryProject2/
 mvn spring-boot:run
 ```
 
-**Confirmed working:**
+Once it was running I hit the authors endpoint to confirm the app was genuinely pulling data from the database:
+
 ```bash
 curl http://<APP_PUBLIC_IP>:5000/authors
 ```
-Returns a JSON list of authors from the database, confirming full end-to-end connectivity.
 
-## Part 2, bash scripts
+Got back a real JSON list of authors, end to end confirmed working.
 
-Scripts are saved in the `scripts/` folder of this repo.
+---
 
-**db_prov.sh**: automates the entire DB VM setup, install MySQL, import the schema, create the user, fix bindIp, restart MySQL.
+## Stage 2, bash scripts
 
-**app_prov.sh**: automates the app VM setup, install Java 17 and Maven, clone the app files, export env vars, and run the app. Replace `DB_PRIVATE_IP` in the script with the actual DB VM private IP before running.
+With the manual steps confirmed, I wrote two provisioning scripts that do the same thing automatically. The idea is you run the script on each VM rather than typing out each command manually.
 
-Links:
+The DB script handles everything on the database side. The app script handles the app side, with one thing to note: the DB private IP needs to be substituted in before running it, since that changes each time new instances are launched.
+
+Both scripts are in the `scripts/` folder:
 - [db_prov.sh](scripts/db_prov.sh)
 - [app_prov.sh](scripts/app_prov.sh)
 
+---
 
-## Part 3, user data deployment
+## Stage 3, user data
 
-Rather than SSHing into each instance and running scripts manually, the same provisioning scripts were passed directly as user data at instance launch time, so everything installs and configures automatically on first boot with no manual intervention required.
+The final step was passing those same scripts as user data at instance launch time, so the whole setup runs automatically on first boot with no manual SSH at all.
 
-**Launching the DB instance with user data:**
+I launched the DB instance first with `db_prov.sh` as its user data, waited for it to be running, grabbed its private IP, updated the app script with that IP, then launched the app instance with `app_prov.sh` as its user data.
+
 ```bash
 aws ec2 run-instances \
   --image-id ami-08c7a4b4f234dfa77 \
@@ -100,19 +91,9 @@ aws ec2 run-instances \
   --output text
 ```
 
-**Get the DB VM's private IP once running:**
-```bash
-aws ec2 describe-instances --instance-ids <DB_INSTANCE_ID> \
-  --query 'Reservations[0].Instances[0].PrivateIpAddress' --output text
-```
-
-**Update the app script with the real DB private IP:**
 ```bash
 sed -i 's|DB_PRIVATE_IP|<DB_PRIVATE_IP>|' scripts/app_prov.sh
-```
 
-**Launching the app instance with user data:**
-```bash
 aws ec2 run-instances \
   --image-id ami-08c7a4b4f234dfa77 \
   --instance-type t3.micro \
@@ -124,11 +105,18 @@ aws ec2 run-instances \
   --output text
 ```
 
-User data runs automatically in the background on first boot. Java and Maven installs take several minutes, so allow 5-10 minutes before testing.
+Java and Maven take a few minutes to install so I gave it around 10 minutes before testing. Hit the same authors endpoint and got back the same JSON, fully automated, no manual steps on either instance.
 
-**Confirmed working:**
-```bash
-curl http://<APP_PUBLIC_IP>:5000/authors
+---
+
+## Deliverables
+
+First deliverable, app working manually with database connected:
 ```
-Returned the full authors JSON with no manual SSH or configuration required on either instance.
+http://34.245.48.141:5000/authors
+```
 
+Second deliverable, scripts and full documentation:
+```
+https://github.com/Hodaahmed18/tech610-hoda-library-app
+```
