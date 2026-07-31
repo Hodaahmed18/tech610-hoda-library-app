@@ -109,14 +109,3 @@ Java and Maven take a few minutes to install so I gave it around 10 minutes befo
 
 ---
 
-## Deliverables
-
-First deliverable, app working manually with database connected:
-```
-http://34.245.48.141:5000/authors
-```
-
-Second deliverable, scripts and full documentation:
-```
-https://github.com/Hodaahmed18/tech610-hoda-library-app
-```
