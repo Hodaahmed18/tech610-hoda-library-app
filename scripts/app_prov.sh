@@ -14,7 +14,7 @@ echo "Cloning app files..."
 git clone https://github.com/Wahab-Sparta/LibraryFiles
 
 echo "Setting environment variables..."
-export DB_HOST=jdbc:mysql://DB_PRIVATE_IP:3306/library
+export DB_HOST=jdbc:mysql://172.31.52.10:3306/library
 export DB_USER=myuser
 export DB_PASS=password
 
